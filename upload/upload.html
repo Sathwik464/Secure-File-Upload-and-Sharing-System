@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Upload a File to S3 via Lambda (Cognito Auth)</title>
+</head>
+<body>
+  <h2>Upload a File to S3 via Lambda (Cognito Auth)</h2>
+
+  <button id="signIn">Sign In</button>
+  <button id="signOut">Log out</button>
+
+  <div>
+    <p>Hello: <span id="email"></span></p>
+    <p>Access token: <span id="access-token"></span></p>
+    <p>ID token: <span id="id-token"></span></p>
+    <p>Refresh token: <span id="refresh-token"></span></p>
+  </div>
+
+  <input type="file" id="fileInput" />
+  <button id="uploadBtn">Upload</button>
+  <p id="status"></p>
+  
+  <script type="module">
+    import { UserManager } from "https://cdn.jsdelivr.net/npm/oidc-client-ts/+esm";
+    const cognitoDomain = "https://eu-central-1aniep26ro.auth.eu-central-1.amazoncognito.com";
+    const clientId = "gg75nh2fisjv2jeke57a5hsd4";
+    const redirectUri = "http://localhost:8000/upload.html";
+    const logoutUri = "http://localhost:8000/";
+    const userManager = new UserManager({
+      authority: "https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_AnIEp26rO",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "email openid phone profile"
+    });
+    // Handle redirect callback
+    userManager.signinCallback().then(user => {
+      document.getElementById("email").textContent = user.profile?.email || "";
+      document.getElementById("access-token").textContent = user.access_token || "";
+      document.getElementById("id-token").textContent = user.id_token || "";
+      document.getElementById("refresh-token").textContent = user.refresh_token || "";
+      window.currentUser = user;
+    }).catch(() => {
+      // Not logged in
+    });
+
+    document.getElementById("signIn").addEventListener("click", async () => {
+      await userManager.signinRedirect();
+    });
+
+    document.getElementById("signOut").addEventListener("click", () => {
+      window.location.href = `${cognitoDomain}/logout?client_id=${clientId}&logout_uri=${encodeURIComponent(logoutUri)}`;
+    });
+
+    document.getElementById("uploadBtn").addEventListener("click", async () => {
+      const status = document.getElementById("status");
+      const fileInput = document.getElementById("fileInput");
+      const file = fileInput.files[0];
+      const accessToken = window.currentUser?.access_token;
+
+      if (!file) {
+        status.innerText = "❌ Please choose a file.";
+        return;
+      }
+
+      try {
+        const res = await fetch("https://nifjo8xeva.execute-api.eu-central-1.amazonaws.com/dev/upload", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${accessToken}`
+          },
+          body: JSON.stringify({
+            fileName: file.name,
+            fileType: file.type
+          })
+        });
+
+        const { uploadURL } = await res.json();
+
+        const uploadRes = await fetch(uploadURL, {
+          method: "PUT",
+          body: file
+        });
+
+        if (uploadRes.ok) {
+          status.innerText = "✅ File uploaded successfully!";
+        } else {
+          status.innerText = "❌ Upload failed.";
+        }
+      } catch (err) {
+        console.error(err);
+        status.innerText = "❌ Error: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
